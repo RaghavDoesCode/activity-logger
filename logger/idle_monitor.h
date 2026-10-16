@@ -33,7 +33,7 @@ static inline void idle_loop()
         while ((e = readdir(d)) != nullptr) {
             if (strncmp(e->d_name, "event", 5) != 0)
                 continue;
-            char path[200];
+            char path[300];
             snprintf(path, sizeof path, "/dev/input/%s", e->d_name);
             int fd = open(path, O_RDONLY | O_NONBLOCK);
             if (fd >= 0)
