@@ -7,3 +7,5 @@
 Module.symvers
 modules.order
 config.ini
+logger/logger
+logger/logger
