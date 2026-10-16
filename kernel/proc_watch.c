@@ -101,8 +101,21 @@ static ssize_t dev_read(struct file *f, char __user *ubuf,
     return n;
 }
 
+/* A new reader starts with an empty buffer, so a session never sees
+ * events that happened before it opened the device. */
+static int dev_open(struct inode *inode, struct file *f)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&fifo_lock, flags);
+    kfifo_reset(&event_fifo);
+    spin_unlock_irqrestore(&fifo_lock, flags);
+    return 0;
+}
+
 static const struct file_operations dev_fops = {
     .owner = THIS_MODULE,
+    .open  = dev_open,
     .read  = dev_read,
 };
 

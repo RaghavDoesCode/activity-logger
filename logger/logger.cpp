@@ -16,6 +16,7 @@
 #include <chrono>
 
 #include "proc_sampler.h"
+#include "idle_monitor.h"
 
 static const int    SAMPLE_SECONDS = 5;
 static const size_t MAX_QUEUE      = 500;
@@ -58,7 +59,7 @@ static std::string esc(MYSQL *c, const std::string &s)
 static volatile sig_atomic_t g_stop = 0;           /* set by signal handler */
 static void on_signal(int) { g_stop = 1; }
 
-struct Snapshot { int pid; std::string name; double cpu; double rss_mb; };
+struct Snapshot { int pid; std::string name; double cpu; double rss_mb; int idle;  };
 
 static std::queue<Snapshot> g_q;                   /* the bounded buffer */
 static std::mutex g_mtx;                           /* protects g_q and g_done */
@@ -72,6 +73,7 @@ static void sampler_thread()
 {
     const double hz = (double)sysconf(_SC_CLK_TCK);
     std::map<int, Sample> prev = scan_all();
+    const double idle_limit = atof(env_or("ACT_IDLE_SECONDS", "60").c_str());
     double prev_t = now_sec();
 
     for (;;) {
@@ -85,6 +87,9 @@ static void sampler_thread()
         std::map<int, Sample> cur = scan_all();
         double t = now_sec();
         double elapsed = t - prev_t;
+	int idle_flag = (idle_seconds() >= idle_limit) ? 1 : 0;
+	if(getenv("ACT_DEBUG"))
+	    fprintf(stderr, "[sampler] idle for %.1f s -> flag %d\n", idle_seconds(), idle_flag);
 
         for (const auto &kv : cur) {
             auto it = prev.find(kv.first);
@@ -96,6 +101,7 @@ static void sampler_thread()
             s.name   = kv.second.name;
             s.cpu    = (kv.second.ticks - it->second.ticks) / (hz * elapsed) * 100.0;
             s.rss_mb = kv.second.rss_mb;
+	    s.idle   = idle_flag;
 
             /* critical section: wait while the queue is full, then push */
             std::unique_lock<std::mutex> lk(g_mtx);
@@ -125,7 +131,7 @@ static void writer_thread()
     const char *sql =
         "INSERT INTO process_snapshots "
         "(session_id, process_name, pid, cpu_usage, memory_usage_mb, is_idle) "
-        "VALUES (?, ?, ?, ?, ?, 0)";
+        "VALUES (?, ?, ?, ?, ?, ?)";
     if (mysql_stmt_prepare(stmt, sql, strlen(sql))) {
         fprintf(stderr, "snapshot prepare failed: %s\n", mysql_stmt_error(stmt));
         mysql_close(conn);
@@ -135,11 +141,12 @@ static void writer_thread()
     }
 
     int p_sid = g_session_id, p_pid = 0;
+    int p_idle = 0;
     double p_cpu = 0, p_rss = 0;
     char p_name[256] = "";
     unsigned long name_len = 0;
 
-    MYSQL_BIND b[5];
+    MYSQL_BIND b[6];
     memset(b, 0, sizeof b);
     b[0].buffer_type = MYSQL_TYPE_LONG;
     b[0].buffer = &p_sid;
@@ -151,6 +158,8 @@ static void writer_thread()
     b[3].buffer = &p_cpu;
     b[4].buffer_type = MYSQL_TYPE_DOUBLE;
     b[4].buffer = &p_rss;
+    b[5].buffer_type = MYSQL_TYPE_LONG;
+    b[5].buffer = &p_idle;
     mysql_stmt_bind_param(stmt, b);
 
     long long written = 0;
@@ -170,6 +179,7 @@ static void writer_thread()
         p_pid = s.pid;
         p_cpu = s.cpu;
         p_rss = s.rss_mb;
+	p_idle = s.idle;
         strncpy(p_name, s.name.c_str(), sizeof p_name - 1);
         p_name[sizeof p_name - 1] = '\0';
         name_len = strlen(p_name);
@@ -316,10 +326,14 @@ int main()
     std::thread sampler(sampler_thread);
     std::thread writer(writer_thread);
 
+    idle_start();
+
     pthread_sigmask(SIG_UNBLOCK, &set, nullptr);     /* main handles signals */
 
     printf("session %d started (Ctrl+C to stop)\n", g_session_id);
     long long events = read_events(conn);
+
+    idle_stop();
 
     /* Shut down: set the flag under the lock, wake everyone, wait for them */
     {
