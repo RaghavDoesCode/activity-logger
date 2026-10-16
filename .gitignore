@@ -9,3 +9,4 @@ modules.order
 config.ini
 logger/logger
 logger/logger
+logger/sample_proc
