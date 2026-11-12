@@ -39,8 +39,8 @@ INSERT INTO devices (employee_id, device_name, db_user)
 VALUES (LAST_INSERT_ID(), '$DEVICE', '$DBUSER');
 
 CREATE USER '$DBUSER'@'$ALLOW_HOST' IDENTIFIED BY '$DBPASS';
-GRANT EXECUTE ON PROCEDURE activity_monitor.start_session TO '$DBUSER'@'$ALLOW_HOST';
-GRANT EXECUTE ON PROCEDURE activity_monitor.end_session   TO '$DBUSER'@'$ALLOW_HOST';
+GRANT EXECUTE ON PROCEDURE activity_monitor.begin_segment TO '$DBUSER'@'$ALLOW_HOST';
+GRANT EXECUTE ON PROCEDURE activity_monitor.end_session_at TO '$DBUSER'@'$ALLOW_HOST';
 GRANT INSERT ON activity_monitor.process_events    TO '$DBUSER'@'$ALLOW_HOST';
 GRANT INSERT ON activity_monitor.process_snapshots TO '$DBUSER'@'$ALLOW_HOST';
 ALTER USER '$DBUSER'@'$ALLOW_HOST' REQUIRE SSL;

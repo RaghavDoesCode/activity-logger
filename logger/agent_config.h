@@ -9,8 +9,9 @@
 
 /* Per-device settings, read from /etc/activity-logger/agent.conf */
 struct AgentConfig {
-    std::string host, db, user, pass, ca;
+    std::string host, db, user, pass, ca, spool_dir;
     unsigned int port = 3306;
+    double spool_max_mb = 200;          /* cap on the local backlog */
 };
 
 static inline std::string cfg_trim(const std::string &s)
@@ -61,6 +62,8 @@ static inline bool load_agent_config(const std::string &path, AgentConfig &cfg)
     cfg.pass = get("DB_PASS", "");
     cfg.ca   = get("DB_CA",   "/etc/activity-logger/ca.pem");
     cfg.port = (unsigned int)strtoul(get("DB_PORT", "3306").c_str(), nullptr, 10);
+    cfg.spool_dir = get("SPOOL_DIR", "/var/lib/activity-logger/spool");
+    cfg.spool_max_mb = strtod(get("SPOOL_MAX_MB", "200").c_str(), nullptr);
 
     if (cfg.host.empty() || cfg.user.empty() || cfg.pass.empty()) {
         fprintf(stderr, "config: DB_HOST, DB_USER and DB_PASS are required\n");
