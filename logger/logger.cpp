@@ -17,12 +17,12 @@
 
 #include "proc_sampler.h"
 #include "idle_monitor.h"
+#include "agent_config.h"
 
 static const int    SAMPLE_SECONDS = 5;
 static const size_t MAX_QUEUE      = 500;
 
-struct Config { std::string host, user, pass, db, emp; };
-static Config g_cfg;
+static AgentConfig g_cfg;
 static int g_session_id = 0;
 
 static std::string env_or(const char *name, const char *def)
@@ -36,9 +36,13 @@ static MYSQL *db_connect()
 {
     MYSQL *c = mysql_init(nullptr);
     if (!c) return nullptr;
+    /* Encrypt, and check the server's certificate against our copy of the CA */
+    enum mysql_ssl_mode mode = SSL_MODE_VERIFY_CA;
+    mysql_options(c, MYSQL_OPT_SSL_MODE, &mode);
+    mysql_options(c, MYSQL_OPT_SSL_CA, g_cfg.ca.c_str());
     if (!mysql_real_connect(c, g_cfg.host.c_str(), g_cfg.user.c_str(),
-                            g_cfg.pass.c_str(), g_cfg.db.c_str(), 3306,
-                            nullptr, 0)) {
+                            g_cfg.pass.c_str(), g_cfg.db.c_str(), g_cfg.port,
+                            nullptr, CLIENT_MULTI_RESULTS)) {
         fprintf(stderr, "connect failed: %s\n", mysql_error(c));
         mysql_close(c);
         return nullptr;
@@ -53,6 +57,27 @@ static std::string esc(MYSQL *c, const std::string &s)
     unsigned long n = mysql_real_escape_string(c, &out[0], s.c_str(), s.size());
     out.resize(n);
     return out;
+}
+
+/* Run a CALL statement. A stored procedure can return result sets, and every
+ * one must be read or the connection becomes unusable ("commands out of
+ * sync"). *first receives column 0 of the first row, if there is one. */
+static bool call_proc(MYSQL *c, const std::string &sql, int *first = nullptr)
+{
+    if (mysql_query(c, sql.c_str()))
+        return false;
+    do {
+        MYSQL_RES *r = mysql_store_result(c);
+        if (r) {
+            MYSQL_ROW row = mysql_fetch_row(r);
+            if (row && row[0] && first)
+                *first = atoi(row[0]);
+            mysql_free_result(r);
+        } else if (mysql_field_count(c) != 0) {
+            return false;
+        }
+    } while (mysql_next_result(c) == 0);
+    return mysql_errno(c) == 0;
 }
 
 /* ---------- shared state between threads ---------- */
@@ -283,11 +308,9 @@ static long long read_events(MYSQL *conn)
 
 int main()
 {
-    g_cfg.host = env_or("ACT_DB_HOST", "localhost");
-    g_cfg.user = env_or("ACT_DB_USER", "monitor_user");
-    g_cfg.pass = env_or("ACT_DB_PASS", "");
-    g_cfg.db   = env_or("ACT_DB_NAME", "activity_monitor");
-    g_cfg.emp  = env_or("ACT_EMPLOYEE", "EMP001");
+    if (!load_agent_config(env_or("ACT_CONFIG", "/etc/activity-logger/agent.conf"),
+                           g_cfg))
+        return 1;
 
     mysql_library_init(0, nullptr, nullptr);
 
@@ -314,13 +337,14 @@ int main()
     char hostname[100];
     gethostname(hostname, sizeof hostname);
     hostname[sizeof hostname - 1] = '\0';
-    std::string q = "INSERT INTO sessions (employee_id, machine_name) VALUES ('"
-                  + esc(conn, g_cfg.emp) + "', '" + esc(conn, hostname) + "')";
-    if (mysql_query(conn, q.c_str())) {
-        fprintf(stderr, "session insert failed: %s\n", mysql_error(conn));
+    /* The server works out WHO we are from the account we logged in with */
+    std::string q = "CALL start_session('" + esc(conn, hostname) + "')";
+    int sid = 0;
+    if (!call_proc(conn, q, &sid) || sid <= 0) {
+        fprintf(stderr, "start_session failed: %s\n", mysql_error(conn));
         return 1;
     }
-    g_session_id = (int)mysql_insert_id(conn);       /* read before COMMIT */
+    g_session_id = sid;
     mysql_commit(conn);
 
     std::thread sampler(sampler_thread);
@@ -346,9 +370,9 @@ int main()
     sampler.join();
     writer.join();
 
-    std::string e = "UPDATE sessions SET end_time = NOW() WHERE session_id = "
-                  + std::to_string(g_session_id);
-    mysql_query(conn, e.c_str());
+    std::string e = "CALL end_session(" + std::to_string(g_session_id) + ")";
+    if (!call_proc(conn, e))
+        fprintf(stderr, "end_session failed: %s\n", mysql_error(conn));
     mysql_commit(conn);
     mysql_close(conn);
     mysql_library_end();
