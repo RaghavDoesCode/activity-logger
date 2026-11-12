@@ -1,0 +1,25 @@
+[Unit]
+Description=Activity Logger agent (records process activity into the central database)
+After=network-online.target mysql.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+# Make sure the kernel module is loaded (it stays loaded across logger restarts)
+ExecStartPre=/sbin/modprobe proc_watch
+ExecStart=/usr/local/sbin/activity-logger
+# SIGTERM makes the logger close its session cleanly
+KillSignal=SIGTERM
+TimeoutStopSec=20
+# If the database is unreachable or the logger crashes, try again every 10 s
+Restart=on-failure
+RestartSec=10
+# The logger needs root for /dev/input and the kernel device, but little else
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

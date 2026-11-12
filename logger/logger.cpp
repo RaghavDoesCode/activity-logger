@@ -308,6 +308,7 @@ static long long read_events(MYSQL *conn)
 
 int main()
 {
+    setvbuf(stdout, nullptr, _IOLBF, 0);
     if (!load_agent_config(env_or("ACT_CONFIG", "/etc/activity-logger/agent.conf"),
                            g_cfg))
         return 1;
