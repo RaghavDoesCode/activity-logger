@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Overview</h1>
+<p class="sub">Who is online right now, and how the last 7 days were spent.</p>
+
+<div class="grid">
+{% for d in devices %}
+  <div class="card">
+    <div class="row">
+      <a class="name" href="{{ url_for('employee', eid=d.employee_id) }}">{{ d.full_name }}</a>
+      <span class="mute"><span class="dot {{ 'on' if d.is_online }}" data-dev="{{ d.device_id }}"></span><span data-label="{{ d.device_id }}">{{ 'Online' if d.is_online else 'Offline' }}</span></span>
+    </div>
+    <div class="mute">{{ d.employee_code }} &middot; {{ d.department or 'no department' }}</div>
+    <div class="mute">Device: {{ d.device_name }}{% if not d.is_active %} (disabled){% endif %}</div>
+    <div class="mute">Last data: {{ (d.last_seen ~ ' UTC') if d.last_seen else 'never' }}</div>
+  </div>
+{% else %}
+  <div class="card">No devices enrolled yet.</div>
+{% endfor %}
+</div>
+
+<div class="card wide gap">
+  <h2>Active vs idle minutes, last 7 days</h2>
+  <div class="chart"><canvas id="week"></canvas></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ nonce }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script nonce="{{ nonce }}">
+const C = {{ chart|tojson }};
+const css = getComputedStyle(document.documentElement);
+const accent = css.getPropertyValue('--accent').trim(), idle = css.getPropertyValue('--idle').trim();
+new Chart(document.getElementById('week'), {
+  type: 'bar',
+  data: {labels: C.names, datasets: [
+    {label: 'Active (min)', data: C.active, backgroundColor: accent},
+    {label: 'Idle (min)',   data: C.idle,   backgroundColor: idle}]},
+  options: {maintainAspectRatio: false, scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}}}
+});
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/status');
+    if (!r.ok) return;
+    for (const d of await r.json()) {
+      const dot = document.querySelector('[data-dev="' + d.device_id + '"]');
+      const lab = document.querySelector('[data-label="' + d.device_id + '"]');
+      if (dot) dot.classList.toggle('on', d.online);
+      if (lab) lab.textContent = d.online ? 'Online' : 'Offline';
+    }
+  } catch (e) {}
+}
+setInterval(refresh, 10000);
+</script>
+{% endblock %}

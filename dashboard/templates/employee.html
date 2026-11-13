@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ name }}{% endblock %}
+{% block body %}
+<p class="mute"><a class="back" href="{{ url_for('overview') }}">&larr; Overview</a></p>
+<h1>{{ name }}</h1>
+<p class="sub">{{ devs[0].employee_code }} &middot; {{ devs[0].department or 'no department' }}
+ &middot; devices: {% for d in devs %}{{ d.device_name }} ({{ 'online' if d.is_online else 'offline' }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
+
+<div class="grid">
+  <div class="card wide"><h2>Daily active vs idle minutes (last 14 days)</h2><div class="chart"><canvas id="daily"></canvas></div></div>
+  <div class="card"><h2>Active minutes by hour of day (UTC)</h2><div class="chart"><canvas id="hourly"></canvas></div></div>
+  <div class="card"><h2>Top programs by CPU seconds (while active)</h2><div class="chart"><canvas id="apps"></canvas></div></div>
+  <div class="card wide">
+    <h2>Recent sessions</h2>
+    <table>
+      <tr><th>#</th><th>Device</th><th>Started (UTC)</th><th>Last data (UTC)</th><th>Samples</th><th>Idle %</th></tr>
+      {% for s in sessions %}
+      <tr><td>{{ s.session_id }}</td><td>{{ s.device_name }}</td><td>{{ s.start_time }}</td><td>{{ s.last_seen }}</td><td>{{ s.samples }}</td><td>{{ s.idle_pct if s.idle_pct is not none else '-' }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ nonce }}" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script nonce="{{ nonce }}">
+const C = {{ chart|tojson }};
+const css = getComputedStyle(document.documentElement);
+const accent = css.getPropertyValue('--accent').trim(), idle = css.getPropertyValue('--idle').trim();
+const opt = {maintainAspectRatio: false};
+new Chart(document.getElementById('daily'), {type: 'bar',
+  data: {labels: C.days, datasets: [
+    {label: 'Active (min)', data: C.active, backgroundColor: accent},
+    {label: 'Idle (min)', data: C.idle, backgroundColor: idle}]},
+  options: {...opt, scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}}}});
+new Chart(document.getElementById('hourly'), {type: 'bar',
+  data: {labels: C.hours, datasets: [{label: 'Active minutes', data: C.hour_min, backgroundColor: accent}]},
+  options: {...opt, plugins: {legend: {display: false}}, scales: {y: {beginAtZero: true}}}});
+new Chart(document.getElementById('apps'), {type: 'bar',
+  data: {labels: C.apps, datasets: [{label: 'CPU seconds', data: C.cpu, backgroundColor: accent}]},
+  options: {...opt, indexAxis: 'y', plugins: {legend: {display: false}}}});
+</script>
+{% endblock %}

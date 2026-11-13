@@ -10,3 +10,4 @@ config.ini
 logger/logger
 logger/logger
 logger/sample_proc
+__pycache__/
