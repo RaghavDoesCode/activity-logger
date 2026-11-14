@@ -3,12 +3,14 @@
 Reads ONLY the v_* views through the read-only MySQL account `activity_admin`
 (settings in ~/dashboard.conf). Login uses hashed passwords from admin_users.
 """
+import json
 import os
 import re
 import secrets
 import time
 from functools import wraps
 
+import insights
 import pymysql
 from flask import (Flask, abort, g, jsonify, redirect, render_template,
                    request, session, url_for)
@@ -100,7 +102,7 @@ def csrf_token():
 
 def check_csrf():
     sent = request.form.get("csrf", "")
-    if not sent or not secrets.compare_digest(sent, session.get("csrf", "")):
+    if not sent or not secrets.compare_digest(sent.encode(), session.get("csrf", "").encode()):
         abort(400)
 
 
@@ -227,6 +229,43 @@ def api_status():
     rows = query("SELECT device_id, seconds_since, is_online FROM v_device_status")
     return jsonify([{"device_id": r["device_id"], "online": bool(r["is_online"]),
                      "seconds_since": r["seconds_since"]} for r in rows])
+
+
+LLM = {"at": 0.0, "tried": 0.0, "text": None, "provider": None}
+LLM_CACHE_SECONDS, LLM_MIN_GAP = 600, 30       # protects the free-tier quota
+
+
+@app.route("/insights")
+@login_required
+def insights_page():
+    emps = insights.gather(query)
+    return render_template(
+        "insights.html", findings=insights.findings(emps),
+        payload=json.dumps(insights.payload(emps), indent=1),
+        provider=insights.provider_name(CONF), note=insights.IDLE_NOTE,
+        generated=insights.now_utc())
+
+
+@app.route("/api/insights/narrative", methods=["POST"])
+@login_required
+def api_narrative():
+    sent = request.headers.get("X-CSRF", "")
+    if not sent or not secrets.compare_digest(sent.encode(), session.get("csrf", "").encode()):
+        abort(400)
+    now = time.time()
+    if LLM["text"] and now - LLM["at"] < LLM_CACHE_SECONDS and not request.args.get("fresh"):
+        return jsonify(ok=True, text=LLM["text"], provider=LLM["provider"],
+                       age=int(now - LLM["at"]))
+    if now - LLM["tried"] < LLM_MIN_GAP:
+        return jsonify(ok=False, error="Please wait a few seconds between requests."), 429
+    LLM["tried"] = now
+    emps = insights.gather(query)
+    try:
+        text, provider = insights.ask_llm(CONF, insights.payload(emps))
+    except RuntimeError as e:
+        return jsonify(ok=False, error=str(e)), 502
+    LLM.update(at=now, text=insights.relabel(text, emps), provider=provider)
+    return jsonify(ok=True, text=LLM["text"], provider=provider, age=0)
 
 
 if __name__ == "__main__":

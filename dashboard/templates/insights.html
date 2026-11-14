@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Insights{% endblock %}
+{% block body %}
+<h1>Insights</h1>
+<p class="sub">What the numbers say for the last 7 days. Generated {{ generated }}.</p>
+<p class="note">{{ note }}</p>
+
+<div class="grid">
+  <div class="card wide">
+    <h2>Statistical findings</h2>
+    <p class="mute">Calculated directly from the database. No data leaves this server.</p>
+    {% for f in findings %}
+    <div class="finding">
+      <span class="badge {{ f.level }}">{{ 'Check' if f.level == 'watch' else ('Normal' if f.level == 'ok' else 'Info') }}</span><b>{{ f.title }}</b>
+      <div class="mute">{{ f.text }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card wide">
+    <h2>AI summary {% if provider %}<span class="mute">({{ provider }})</span>{% endif %}</h2>
+    {% if provider %}
+      <p class="mute">Writes the findings up in plain English. Only the anonymised summary below is sent; names, codes, devices and program names are not.</p>
+      <p><button id="gen" type="button">Generate AI summary</button></p>
+      <div id="narr" class="narr"></div>
+      <div id="narr-err" class="err"></div>
+    {% else %}
+      <p class="mute">Not configured. The statistical findings above work without it. To add an AI summary, set a free API key in <code>~/dashboard.conf</code> (see the setup notes) and restart the dashboard.</p>
+    {% endif %}
+    <details>
+      <summary class="mute">Exactly what would be sent to the AI</summary>
+      <pre>{{ payload }}</pre>
+    </details>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if provider %}
+<script nonce="{{ nonce }}">
+const btn = document.getElementById('gen'), out = document.getElementById('narr'), err = document.getElementById('narr-err');
+btn.addEventListener('click', async () => {
+  btn.disabled = true; err.textContent = ''; out.textContent = 'Thinking...';
+  try {
+    const r = await fetch('/api/insights/narrative', {method: 'POST', headers: {'X-CSRF': {{ csrf|tojson }}}});
+    const j = await r.json();
+    if (j.ok) { out.textContent = j.text + (j.age ? '\n\n(cached ' + j.age + ' s ago)' : ''); }
+    else { out.textContent = ''; err.textContent = j.error || 'Something went wrong.'; }
+  } catch (e) { out.textContent = ''; err.textContent = 'Request failed.'; }
+  btn.disabled = false;
+});
+</script>
+{% endif %}
+{% endblock %}

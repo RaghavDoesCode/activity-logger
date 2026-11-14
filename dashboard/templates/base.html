@@ -11,6 +11,8 @@
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
 header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--card);border-bottom:1px solid var(--line)}
 header a{color:var(--ink);text-decoration:none;font-weight:650}
+header nav{display:flex;gap:20px;align-items:center}
+header a.navlink{font-weight:450;color:var(--mute)}header a.navlink:hover{color:var(--accent)}
 header form{margin:0;display:flex;gap:12px;align-items:center;color:var(--mute);font-size:14px}
 main{max-width:1100px;margin:0 auto;padding:24px 16px}
 h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0 0 12px}
@@ -34,13 +36,22 @@ input{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;bac
 .err{color:#d92d20;margin:0 0 12px}
 .login{max-width:360px;margin:80px auto}
 .gap{margin-top:16px}
+.badge{display:inline-block;font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--mute);margin-right:8px}
+.badge.watch{color:#b54708;border-color:#b54708}.badge.ok{color:var(--ok);border-color:var(--ok)}
+.finding{padding:12px 0;border-bottom:1px solid var(--line)}.finding:last-child{border:0}
+.finding b{font-weight:650}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;font-size:12px}
+.narr{white-space:pre-wrap}
+.note{border-left:3px solid var(--accent);padding:4px 12px;color:var(--mute);margin:0 0 16px}
 a.back{color:inherit}
 </style>
 </head>
 <body>
 {% if admin %}
 <header>
-  <a href="{{ url_for('overview') }}">Activity Dashboard</a>
+  <nav><a href="{{ url_for('overview') }}">Activity Dashboard</a>
+    <a class="navlink" href="{{ url_for('overview') }}">Overview</a>
+    <a class="navlink" href="{{ url_for('insights_page') }}">Insights</a></nav>
   <form method="post" action="{{ url_for('logout') }}">
     <span>{{ admin }}</span><input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="link" type="submit">Log out</button>
